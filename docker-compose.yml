@@ -1,0 +1,204 @@
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: docbridge-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: docbridge_db
+      POSTGRES_USER: docbridge_user
+      POSTGRES_PASSWORD: DocBridge@2024Secure
+    ports:
+      - '5433:5432'
+    volumes:
+      - docbridge_pgdata:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U docbridge_user -d docbridge_db']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  gateway:
+    build: ./gateway
+    container_name: docbridge-gateway
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    env_file: ./gateway/.env
+    depends_on:
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  auth-service:
+    build: ./services/auth-service
+    container_name: docbridge-auth
+    restart: unless-stopped
+    ports:
+      - '3001:3001'
+    env_file: ./services/auth-service/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3001/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  consultation-service:
+    build: ./services/consultation-service
+    container_name: docbridge-consultation
+    restart: unless-stopped
+    ports:
+      - '3002:3002'
+    env_file: ./services/consultation-service/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3002/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  prescription-service:
+    build: ./services/prescription-service
+    container_name: docbridge-prescription
+    restart: unless-stopped
+    ports:
+      - '3003:3003'
+    env_file: ./services/prescription-service/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3003/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  reminder-service:
+    build: ./services/reminder-service
+    container_name: docbridge-reminder
+    restart: unless-stopped
+    ports:
+      - '3004:3004'
+    env_file: ./services/reminder-service/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3004/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  labreport-service:
+    build: ./services/labreport-service
+    container_name: docbridge-labreport
+    restart: unless-stopped
+    ports:
+      - '3005:3005'
+    env_file: ./services/labreport-service/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3005/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  symptom-service:
+    build: ./services/symptom-service
+    container_name: docbridge-symptom
+    restart: unless-stopped
+    ports:
+      - '3006:3006'
+    env_file: ./services/symptom-service/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3006/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  ai-companion-service:
+    build: ./services/ai-companion-service
+    container_name: docbridge-ai-companion
+    restart: unless-stopped
+    ports:
+      - '3007:3007'
+    env_file: ./services/ai-companion-service/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3007/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  health-summary-service:
+    build: ./services/health-summary-service
+    container_name: docbridge-health-summary
+    restart: unless-stopped
+    ports:
+      - '3008:3008'
+    env_file: ./services/health-summary-service/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3008/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  family-service:
+    build: ./services/family-service
+    container_name: docbridge-family
+    restart: unless-stopped
+    ports:
+      - '3009:3009'
+    env_file: ./services/family-service/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3009/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  frontend:
+    build: ./frontend
+    container_name: docbridge-frontend
+    restart: unless-stopped
+    ports:
+      - '80:80'
+    depends_on:
+      gateway:
+        condition: service_healthy
+
+volumes:
+  docbridge_pgdata:

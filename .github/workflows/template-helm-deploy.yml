@@ -1,0 +1,178 @@
+name: Template Helm Deploy
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        required: true
+        type: string
+      image_name:
+        required: true
+        type: string
+      image_tag:
+        required: true
+        type: string
+      helm_service_key:
+        required: true
+        type: string
+      kv_name:
+        required: true
+        type: string
+      identity_id:
+        required: true
+        type: string
+      postgres_fqdn:
+        required: true
+        type: string
+      agw_ip:
+        required: true
+        type: string
+      acr_login_server:
+        required: true
+        type: string
+    secrets:
+      AZURE_CLIENT_ID:
+        required: false
+      AZURE_TENANT_ID:
+        required: false
+      AZURE_SUBSCRIPTION_ID:
+        required: false
+      DB_PASSWORD:
+        required: false
+      JWT_ACCESS_SECRET:
+        required: false
+      JWT_REFRESH_SECRET:
+        required: false
+      AZURE_OPENAI_KEY:
+        required: false
+      SMTP_USERNAME:
+        required: false
+      SMTP_PASSWORD:
+        required: false
+      ALERT_EMAIL:
+        required: false
+
+jobs:
+  helm-deploy:
+    name: Helm Deploy to AKS - ${{ inputs.service_name }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Azure Login via OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get AKS Credentials
+        run: |
+          az aks get-credentials \
+            --resource-group docbridge-rg \
+            --name docbridge-dev-aks \
+            --overwrite-existing
+
+      - name: Run Helm Upgrade/Install
+        run: |
+          MAX_RETRIES=20
+          RETRY_DELAY=20
+          success=false
+          
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i of $MAX_RETRIES to run Helm upgrade..."
+            if helm upgrade --install docbridge ./helm/docbridge \
+              --namespace docbridge \
+              --create-namespace \
+              --values helm/docbridge/values.yaml \
+              --values helm/docbridge/values.dev.yaml \
+              --set azure.keyVaultName=${{ inputs.kv_name }} \
+              --set azure.workloadIdentityClientId=${{ inputs.identity_id }} \
+              --set azure.tenantId=${{ secrets.AZURE_TENANT_ID }} \
+              --set database.host=${{ inputs.postgres_fqdn }} \
+              --set gateway.corsOrigin=http://${{ inputs.agw_ip }} \
+              --set services.${{ inputs.helm_service_key }}.image.tag=${{ inputs.image_tag }} \
+              --wait \
+              --timeout 8m; then
+              success=true
+              echo "Helm upgrade completed successfully!"
+              break
+            else
+              echo "Helm upgrade attempt $i failed (possibly due to concurrent lock). Waiting $RETRY_DELAY seconds before retrying..."
+              sleep $RETRY_DELAY
+            fi
+          done
+          
+          if [ "$success" = false ]; then
+            echo "Helm upgrade failed after $MAX_RETRIES attempts due to locking conflicts or configuration issues."
+            exit 1
+          fi
+
+      - name: Verify Deployment Health
+        run: |
+          kubectl rollout status deployment/${{ inputs.service_name }} -n docbridge --timeout=300s
+          kubectl get pods -n docbridge
+
+      - name: Run Smoke Test against Gateway
+        run: |
+          MAX_RETRIES=15
+          RETRY_DELAY=15
+          success=false
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i of $MAX_RETRIES to check Application Gateway health..."
+            AGW_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+              --connect-timeout 10 \
+              http://${{ inputs.agw_ip }}/api/v1/health)
+            if [ "$AGW_RESPONSE" = "200" ]; then
+              success=true
+              echo "Health check passed: HTTP $AGW_RESPONSE"
+              break
+            else
+              echo "Health check attempt $i returned HTTP $AGW_RESPONSE. Waiting $RETRY_DELAY seconds before retrying..."
+              sleep $RETRY_DELAY
+            fi
+          done
+          if [ "$success" = false ]; then
+            echo "Health check failed after $MAX_RETRIES attempts."
+            exit 1
+          fi
+
+
+      - name: Handle Rollback on Failure
+        if: failure()
+        run: |
+          echo "====================== DEPLOYMENT FAILED — TRIGGERING HELM ROLLBACK ======================"
+          helm rollback docbridge -n docbridge
+          echo "Current pod status after rollback:"
+          kubectl get pods -n docbridge
+
+      - name: Send Failure/Rollback Email
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          from: DocBridge DevOps <${{ secrets.SMTP_USERNAME }}>
+          to: ${{ secrets.ALERT_EMAIL }}
+          subject: FAILED + ROLLED BACK - Helm Deploy - ${{ inputs.service_name }} - DocBridge
+          body: |
+            The Helm deployment stage has FAILED for service: ${{ inputs.service_name }}.
+            An automatic rollback to the last known healthy state has been executed.
+
+            Service: ${{ inputs.service_name }}
+            Image Tag: ${{ inputs.image_tag }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            Triggered by: ${{ github.actor }}
+            
+            App Gateway IP: ${{ inputs.agw_ip }}
+            Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            
+            Action Required: Please review the deployment logs above and check the health state of the AKS pods.

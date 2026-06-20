@@ -1,0 +1,553 @@
+name: DocBridge Build Pipeline
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'services/**'
+      - 'gateway/**'
+      - 'frontend/**'
+      - 'database/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'services/**'
+      - 'gateway/**'
+      - 'frontend/**'
+      - 'database/**'
+  workflow_dispatch:
+    inputs:
+      service_override:
+        description: "Force build specific service"
+        required: false
+        type: string
+        default: ''
+      deploy_all:
+        description: "Force build all services"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+  security-events: write
+
+jobs:
+  detect-changes:
+    name: Detect Changed Services
+    runs-on: ubuntu-latest
+    outputs:
+      changed_services: ${{ steps.detect.outputs.changed_services }}
+      has_database: ${{ steps.detect.outputs.has_database }}
+      any_changed: ${{ steps.detect.outputs.any_changed }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect Changed Paths
+        id: detect
+        run: |
+          set +e
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin main --depth=1
+            CHANGED=$(git diff --name-only origin/main HEAD)
+          else
+            if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+              CHANGED=$(git diff --name-only HEAD~1 HEAD)
+            else
+              CHANGED=$(git show --name-only --format="" HEAD)
+            fi
+          fi
+          set -e
+          
+          echo "Changed files:"
+          echo "$CHANGED"
+          
+          services=()
+          has_database=false
+          
+          for file in $CHANGED; do
+            if [[ $file =~ ^services/([^/]+)/ ]]; then
+              svc_folder="${BASH_REMATCH[1]}"
+              if [ "$svc_folder" = "consultation-service" ]; then
+                services+=("consultation")
+              elif [ "$svc_folder" = "prescription-service" ]; then
+                services+=("prescription")
+              elif [ "$svc_folder" = "reminder-service" ]; then
+                services+=("reminder")
+              elif [ "$svc_folder" = "labreport-service" ]; then
+                services+=("labreport")
+              elif [ "$svc_folder" = "symptom-service" ]; then
+                services+=("symptom")
+              elif [ "$svc_folder" = "ai-companion-service" ]; then
+                services+=("ai-companion")
+              elif [ "$svc_folder" = "health-summary-service" ]; then
+                services+=("health-summary")
+              elif [ "$svc_folder" = "family-service" ]; then
+                services+=("family")
+              elif [ "$svc_folder" = "auth-service" ]; then
+                services+=("auth-service")
+              fi
+            elif [[ $file =~ ^gateway/ ]]; then
+              services+=("api-gateway")
+            elif [[ $file =~ ^frontend/ ]]; then
+              services+=("frontend")
+            elif [[ $file =~ ^database/ ]]; then
+              has_database=true
+            fi
+          done
+          
+          # Force inputs override logic
+          if [ "${{ github.event.inputs.deploy_all }}" = "true" ]; then
+            services=("frontend" "api-gateway" "auth-service" "consultation" "prescription" "reminder" "labreport" "symptom" "ai-companion" "health-summary" "family")
+            has_database=true
+          elif [ -n "${{ github.event.inputs.service_override }}" ]; then
+            services=("${{ github.event.inputs.service_override }}")
+            if [ "${{ github.event.inputs.service_override }}" = "db-migrations" ]; then
+              has_database=true
+            fi
+          fi
+          
+          # Deduplicate
+          unique_services=($(echo "${services[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
+          
+          # Output JSON array
+          services_json=$(printf '%s\n' "${unique_services[@]}" | jq -R . | jq -s -c .)
+          echo "changed_services=$services_json" >> $GITHUB_OUTPUT
+          echo "has_database=$has_database" >> $GITHUB_OUTPUT
+          
+          if [ ${#unique_services[@]} -gt 0 ] || [ "$has_database" = "true" ]; then
+            echo "any_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "any_changed=false" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "Detected changed services: $services_json"
+          echo "Has database changes: $has_database"
+
+  cicd-db-migrations:
+    name: "DB Migrations - Docker Build + Push"
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_database == 'true'
+    uses: ./.github/workflows/template-docker-acr.yml
+    with:
+      service_name: db-migrations
+      image_name: db-migrations
+      working_directory: ./database
+      node_version: '18'
+    secrets: inherit
+
+  # =========================================================================
+  # 1. FRONTEND SERVICE PIPELINE STAGES
+  # =========================================================================
+  cicd-frontend-sonar:
+    name: "Frontend - Stage 1 - SonarCloud"
+    needs: detect-changes
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'frontend')
+    uses: ./.github/workflows/template-sonarcloud.yml
+    with:
+      service_name: frontend
+      working_directory: ./frontend
+      sonar_project_key: docbridge_frontend
+    secrets: inherit
+
+  cicd-frontend-build:
+    name: "Frontend - Stage 2 - Build + Snyk"
+    needs: [detect-changes, cicd-frontend-sonar]
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'frontend')
+    uses: ./.github/workflows/template-build-snyk.yml
+    with:
+      service_name: frontend
+      working_directory: ./frontend
+      node_version: '20'
+    secrets: inherit
+
+  cicd-frontend-docker:
+    name: "Frontend - Stage 3 - Docker + ACR"
+    needs: [detect-changes, cicd-frontend-build]
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'frontend')
+    uses: ./.github/workflows/template-docker-acr.yml
+    with:
+      service_name: frontend
+      image_name: frontend
+      working_directory: ./frontend
+      node_version: '20'
+    secrets: inherit
+
+  # =========================================================================
+  # 2. API GATEWAY SERVICE PIPELINE STAGES
+  # =========================================================================
+  cicd-api-gateway-sonar:
+    name: "API Gateway - Stage 1 - SonarCloud"
+    needs: detect-changes
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'api-gateway')
+    uses: ./.github/workflows/template-sonarcloud.yml
+    with:
+      service_name: api-gateway
+      working_directory: ./gateway
+      sonar_project_key: docbridge_api-gateway
+    secrets: inherit
+
+  cicd-api-gateway-build:
+    name: "API Gateway - Stage 2 - Build + Snyk"
+    needs: [detect-changes, cicd-api-gateway-sonar]
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'api-gateway')
+    uses: ./.github/workflows/template-build-snyk.yml
+    with:
+      service_name: api-gateway
+      working_directory: ./gateway
+      node_version: '18'
+    secrets: inherit
+
+  cicd-api-gateway-docker:
+    name: "API Gateway - Stage 3 - Docker + ACR"
+    needs: [detect-changes, cicd-api-gateway-build]
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'api-gateway')
+    uses: ./.github/workflows/template-docker-acr.yml
+    with:
+      service_name: api-gateway
+      image_name: api-gateway
+      working_directory: ./gateway
+      node_version: '18'
+    secrets: inherit
+
+  # =========================================================================
+  # 3. AUTH SERVICE PIPELINE STAGES
+  # =========================================================================
+  cicd-auth-service-sonar:
+    name: "Auth Service - Stage 1 - SonarCloud"
+    needs: detect-changes
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'auth-service')
+    uses: ./.github/workflows/template-sonarcloud.yml
+    with:
+      service_name: auth-service
+      working_directory: ./services/auth-service
+      sonar_project_key: docbridge_auth-service
+    secrets: inherit
+
+  cicd-auth-service-build:
+    name: "Auth Service - Stage 2 - Build + Snyk"
+    needs: [detect-changes, cicd-auth-service-sonar]
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'auth-service')
+    uses: ./.github/workflows/template-build-snyk.yml
+    with:
+      service_name: auth-service
+      working_directory: ./services/auth-service
+      node_version: '18'
+    secrets: inherit
+
+  cicd-auth-service-docker:
+    name: "Auth Service - Stage 3 - Docker + ACR"
+    needs: [detect-changes, cicd-auth-service-build]
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'auth-service')
+    uses: ./.github/workflows/template-docker-acr.yml
+    with:
+      service_name: auth-service
+      image_name: auth-service
+      working_directory: ./services/auth-service
+      node_version: '18'
+    secrets: inherit
+
+  # =========================================================================
+  # 4. CONSULTATION SERVICE PIPELINE STAGES
+  # =========================================================================
+  cicd-consultation-sonar:
+    name: "Consultation - Stage 1 - SonarCloud"
+    needs: detect-changes
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'consultation')
+    uses: ./.github/workflows/template-sonarcloud.yml
+    with:
+      service_name: consultation-service
+      working_directory: ./services/consultation-service
+      sonar_project_key: docbridge_consultation-service
+    secrets: inherit
+
+  cicd-consultation-build:
+    name: "Consultation - Stage 2 - Build + Snyk"
+    needs: [detect-changes, cicd-consultation-sonar]
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'consultation')
+    uses: ./.github/workflows/template-build-snyk.yml
+    with:
+      service_name: consultation-service
+      working_directory: ./services/consultation-service
+      node_version: '18'
+    secrets: inherit
+
+  cicd-consultation-docker:
+    name: "Consultation - Stage 3 - Docker + ACR"
+    needs: [detect-changes, cicd-consultation-build]
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'consultation')
+    uses: ./.github/workflows/template-docker-acr.yml
+    with:
+      service_name: consultation-service
+      image_name: consultation-service
+      working_directory: ./services/consultation-service
+      node_version: '18'
+    secrets: inherit
+
+  # =========================================================================
+  # 5. PRESCRIPTION SERVICE PIPELINE STAGES
+  # =========================================================================
+  cicd-prescription-sonar:
+    name: "Prescription - Stage 1 - SonarCloud"
+    needs: detect-changes
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'prescription')
+    uses: ./.github/workflows/template-sonarcloud.yml
+    with:
+      service_name: prescription-service
+      working_directory: ./services/prescription-service
+      sonar_project_key: docbridge_prescription-service
+    secrets: inherit
+
+  cicd-prescription-build:
+    name: "Prescription - Stage 2 - Build + Snyk"
+    needs: [detect-changes, cicd-prescription-sonar]
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'prescription')
+    uses: ./.github/workflows/template-build-snyk.yml
+    with:
+      service_name: prescription-service
+      working_directory: ./services/prescription-service
+      node_version: '18'
+    secrets: inherit
+
+  cicd-prescription-docker:
+    name: "Prescription - Stage 3 - Docker + ACR"
+    needs: [detect-changes, cicd-prescription-build]
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'prescription')
+    uses: ./.github/workflows/template-docker-acr.yml
+    with:
+      service_name: prescription-service
+      image_name: prescription-service
+      working_directory: ./services/prescription-service
+      node_version: '18'
+    secrets: inherit
+
+  # =========================================================================
+  # 6. REMINDER SERVICE PIPELINE STAGES
+  # =========================================================================
+  cicd-reminder-sonar:
+    name: "Reminder - Stage 1 - SonarCloud"
+    needs: detect-changes
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'reminder')
+    uses: ./.github/workflows/template-sonarcloud.yml
+    with:
+      service_name: reminder-service
+      working_directory: ./services/reminder-service
+      sonar_project_key: docbridge_reminder-service
+    secrets: inherit
+
+  cicd-reminder-build:
+    name: "Reminder - Stage 2 - Build + Snyk"
+    needs: [detect-changes, cicd-reminder-sonar]
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'reminder')
+    uses: ./.github/workflows/template-build-snyk.yml
+    with:
+      service_name: reminder-service
+      working_directory: ./services/reminder-service
+      node_version: '18'
+    secrets: inherit
+
+  cicd-reminder-docker:
+    name: "Reminder - Stage 3 - Docker + ACR"
+    needs: [detect-changes, cicd-reminder-build]
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'reminder')
+    uses: ./.github/workflows/template-docker-acr.yml
+    with:
+      service_name: reminder-service
+      image_name: reminder-service
+      working_directory: ./services/reminder-service
+      node_version: '18'
+    secrets: inherit
+
+  # =========================================================================
+  # 7. LABREPORT SERVICE PIPELINE STAGES
+  # =========================================================================
+  cicd-labreport-sonar:
+    name: "Lab Report - Stage 1 - SonarCloud"
+    needs: detect-changes
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'labreport')
+    uses: ./.github/workflows/template-sonarcloud.yml
+    with:
+      service_name: labreport-service
+      working_directory: ./services/labreport-service
+      sonar_project_key: docbridge_labreport-service
+    secrets: inherit
+
+  cicd-labreport-build:
+    name: "Lab Report - Stage 2 - Build + Snyk"
+    needs: [detect-changes, cicd-labreport-sonar]
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'labreport')
+    uses: ./.github/workflows/template-build-snyk.yml
+    with:
+      service_name: labreport-service
+      working_directory: ./services/labreport-service
+      node_version: '18'
+    secrets: inherit
+
+  cicd-labreport-docker:
+    name: "Lab Report - Stage 3 - Docker + ACR"
+    needs: [detect-changes, cicd-labreport-build]
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'labreport')
+    uses: ./.github/workflows/template-docker-acr.yml
+    with:
+      service_name: labreport-service
+      image_name: labreport-service
+      working_directory: ./services/labreport-service
+      node_version: '18'
+    secrets: inherit
+
+  # =========================================================================
+  # 8. SYMPTOM SERVICE PIPELINE STAGES
+  # =========================================================================
+  cicd-symptom-sonar:
+    name: "Symptom - Stage 1 - SonarCloud"
+    needs: detect-changes
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'symptom')
+    uses: ./.github/workflows/template-sonarcloud.yml
+    with:
+      service_name: symptom-service
+      working_directory: ./services/symptom-service
+      sonar_project_key: docbridge_symptom-service
+    secrets: inherit
+
+  cicd-symptom-build:
+    name: "Symptom - Stage 2 - Build + Snyk"
+    needs: [detect-changes, cicd-symptom-sonar]
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'symptom')
+    uses: ./.github/workflows/template-build-snyk.yml
+    with:
+      service_name: symptom-service
+      working_directory: ./services/symptom-service
+      node_version: '18'
+    secrets: inherit
+
+  # Check if build is required
+  cicd-symptom-docker:
+    name: "Symptom - Stage 3 - Docker + ACR"
+    needs: [detect-changes, cicd-symptom-build]
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'symptom')
+    uses: ./.github/workflows/template-docker-acr.yml
+    with:
+      service_name: symptom-service
+      image_name: symptom-service
+      working_directory: ./services/symptom-service
+      node_version: '18'
+    secrets: inherit
+
+  # =========================================================================
+  # 9. AI COMPANION SERVICE PIPELINE STAGES
+  # =========================================================================
+  cicd-ai-companion-sonar:
+    name: "AI Companion - Stage 1 - SonarCloud"
+    needs: detect-changes
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'ai-companion')
+    uses: ./.github/workflows/template-sonarcloud.yml
+    with:
+      service_name: ai-companion-service
+      working_directory: ./services/ai-companion-service
+      sonar_project_key: docbridge_ai-companion-service
+    secrets: inherit
+
+  cicd-ai-companion-build:
+    name: "AI Companion - Stage 2 - Build + Snyk"
+    needs: [detect-changes, cicd-ai-companion-sonar]
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'ai-companion')
+    uses: ./.github/workflows/template-build-snyk.yml
+    with:
+      service_name: ai-companion-service
+      working_directory: ./services/ai-companion-service
+      node_version: '18'
+    secrets: inherit
+
+  cicd-ai-companion-docker:
+    name: "AI Companion - Stage 3 - Docker + ACR"
+    needs: [detect-changes, cicd-ai-companion-build]
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'ai-companion')
+    uses: ./.github/workflows/template-docker-acr.yml
+    with:
+      service_name: ai-companion-service
+      image_name: ai-companion-service
+      working_directory: ./services/ai-companion-service
+      node_version: '18'
+    secrets: inherit
+
+  # =========================================================================
+  # 10. HEALTH SUMMARY SERVICE PIPELINE STAGES
+  # =========================================================================
+  cicd-health-summary-sonar:
+    name: "Health Summary - Stage 1 - SonarCloud"
+    needs: detect-changes
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'health-summary')
+    uses: ./.github/workflows/template-sonarcloud.yml
+    with:
+      service_name: health-summary-service
+      working_directory: ./services/health-summary-service
+      sonar_project_key: docbridge_health-summary-service
+    secrets: inherit
+
+  cicd-health-summary-build:
+    name: "Health Summary - Stage 2 - Build + Snyk"
+    needs: [detect-changes, cicd-health-summary-sonar]
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'health-summary')
+    uses: ./.github/workflows/template-build-snyk.yml
+    with:
+      service_name: health-summary-service
+      working_directory: ./services/health-summary-service
+      node_version: '18'
+    secrets: inherit
+
+  cicd-health-summary-docker:
+    name: "Health Summary - Stage 3 - Docker + ACR"
+    needs: [detect-changes, cicd-health-summary-build]
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'health-summary')
+    uses: ./.github/workflows/template-docker-acr.yml
+    with:
+      service_name: health-summary-service
+      image_name: health-summary-service
+      working_directory: ./services/health-summary-service
+      node_version: '18'
+    secrets: inherit
+
+  # =========================================================================
+  # 11. FAMILY SERVICE PIPELINE STAGES
+  # =========================================================================
+  cicd-family-sonar:
+    name: "Family - Stage 1 - SonarCloud"
+    needs: detect-changes
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'family')
+    uses: ./.github/workflows/template-sonarcloud.yml
+    with:
+      service_name: family-service
+      working_directory: ./services/family-service
+      sonar_project_key: docbridge_family-service
+    secrets: inherit
+
+  cicd-family-build:
+    name: "Family - Stage 2 - Build + Snyk"
+    needs: [detect-changes, cicd-family-sonar]
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'family')
+    uses: ./.github/workflows/template-build-snyk.yml
+    with:
+      service_name: family-service
+      working_directory: ./services/family-service
+      node_version: '18'
+    secrets: inherit
+
+  cicd-family-docker:
+    name: "Family - Stage 3 - Docker + ACR"
+    needs: [detect-changes, cicd-family-build]
+    if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'family')
+    uses: ./.github/workflows/template-docker-acr.yml
+    with:
+      service_name: family-service
+      image_name: family-service
+      working_directory: ./services/family-service
+      node_version: '18'
+    secrets: inherit

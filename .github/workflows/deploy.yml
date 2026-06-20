@@ -1,0 +1,227 @@
+name: DocBridge Deploy Pipeline
+
+on:
+  workflow_run:
+    workflows: ["DocBridge Build Pipeline"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy_all:
+        description: "Force deploy all services"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  setup:
+    name: Get Infrastructure Values
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    outputs:
+      kv_name: ${{ steps.tf-outputs.outputs.kv_name }}
+      identity_id: ${{ steps.tf-outputs.outputs.identity_id }}
+      postgres_fqdn: ${{ steps.tf-outputs.outputs.postgres_fqdn }}
+      agw_ip: ${{ steps.tf-outputs.outputs.agw_ip }}
+      image_tag: ${{ steps.tag.outputs.image_tag }}
+    steps:
+      - name: Checkout DocBridge-terraform for state access
+        uses: actions/checkout@v4
+        with:
+          repository: Docbridge-devops-project/DocBridge-terraform
+          token: ${{ secrets.KUBERNETES_REPO_PAT }}
+          path: docbridge-terraform
+
+      - name: Azure Login via OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.7
+
+      - name: Terraform Init
+        working-directory: docbridge-terraform/terraform
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=docbridge-rg" \
+            -backend-config="storage_account_name=${{ secrets.TF_STORAGE_ACCOUNT_NAME }}" \
+            -backend-config="container_name=${{ secrets.TF_CONTAINER_NAME }}" \
+            -backend-config="key=dev.terraform.tfstate"
+
+      - name: Capture Terraform Outputs
+        id: tf-outputs
+        working-directory: docbridge-terraform/terraform
+        run: |
+          echo "kv_name=$(terraform output -raw key_vault_name)" >> $GITHUB_OUTPUT
+          echo "identity_id=$(terraform output -raw workload_identity_client_id)" >> $GITHUB_OUTPUT
+          echo "postgres_fqdn=$(terraform output -raw postgres_fqdn)" >> $GITHUB_OUTPUT
+          echo "agw_ip=$(terraform output -raw app_gateway_public_ip)" >> $GITHUB_OUTPUT
+
+      - name: Determine Image Tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            short_sha=$(echo "${{ github.event.workflow_run.head_sha }}" | cut -c1-7)
+            echo "image_tag=$short_sha" >> $GITHUB_OUTPUT
+          else
+            short_sha=$(echo "${{ github.sha }}" | cut -c1-7)
+            echo "image_tag=$short_sha" >> $GITHUB_OUTPUT
+          fi
+
+  approve:
+    name: Approval Gate
+    needs: setup
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Wait for manual approval
+        run: echo "Deployment approved for production environment."
+
+  deploy:
+    name: Helm Deploy to Production
+    needs: [setup, approve]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout DocBridge-kubernetes for Helm chart
+        uses: actions/checkout@v4
+        with:
+          repository: Docbridge-devops-project/DocBridge-kubernetes
+          token: ${{ secrets.KUBERNETES_REPO_PAT }}
+          path: docbridge-kubernetes
+
+      - name: Azure Login via OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get AKS Credentials
+        run: |
+          az aks get-credentials \
+            --resource-group docbridge-rg \
+            --name docbridge-dev-aks \
+            --overwrite-existing
+
+      - name: Run Helm Upgrade/Install
+        run: |
+          helm upgrade --install docbridge ./docbridge-kubernetes/helm/docbridge \
+            --namespace production \
+            --create-namespace \
+            --values ./docbridge-kubernetes/helm/docbridge/values.yaml \
+            --values ./docbridge-kubernetes/helm/docbridge/values.dev.yaml \
+            --set azure.keyVaultName=${{ needs.setup.outputs.kv_name }} \
+            --set azure.workloadIdentityClientId=${{ needs.setup.outputs.identity_id }} \
+            --set azure.tenantId=${{ secrets.AZURE_TENANT_ID }} \
+            --set database.host=${{ needs.setup.outputs.postgres_fqdn }} \
+            --set gateway.corsOrigin=http://${{ needs.setup.outputs.agw_ip }} \
+            --set image.tag=${{ needs.setup.outputs.image_tag }} \
+            --set global.imageTag=${{ needs.setup.outputs.image_tag }} \
+            --wait \
+            --timeout 10m
+
+  verify-and-smoke-test:
+    name: Verify Rollout and Run Smoke Tests
+    needs: [setup, deploy]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Azure Login via OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get AKS Credentials
+        run: |
+          az aks get-credentials \
+            --resource-group docbridge-rg \
+            --name docbridge-dev-aks \
+            --overwrite-existing
+
+      - name: Verify Rollout Status
+        run: |
+          kubectl get pods -n production
+
+      - name: Run Smoke Tests against Gateway
+        run: |
+          MAX_RETRIES=15
+          RETRY_DELAY=15
+          success=false
+          
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i of $MAX_RETRIES to check Application Gateway health endpoints..."
+            
+            STATUS_HEALTH=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 http://${{ needs.setup.outputs.agw_ip }}/api/v1/health)
+            STATUS_HEALTHZ=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 http://${{ needs.setup.outputs.agw_ip }}/healthz)
+            STATUS_READY=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 http://${{ needs.setup.outputs.agw_ip }}/ready)
+            STATUS_AUTH_HEALTH=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 http://${{ needs.setup.outputs.agw_ip }}/api/v1/auth/health)
+            
+            echo "HTTP Responses - /api/v1/health: $STATUS_HEALTH, /healthz: $STATUS_HEALTHZ, /ready: $STATUS_READY, /api/v1/auth/health: $STATUS_AUTH_HEALTH"
+            
+            # Check if all return 200 OK
+            if [ "$STATUS_HEALTH" = "200" ] && [ "$STATUS_HEALTHZ" = "200" ] && [ "$STATUS_READY" = "200" ]; then
+              success=true
+              echo "Smoke tests passed!"
+              break
+            else
+              echo "Smoke tests failed. Retrying in $RETRY_DELAY seconds..."
+              sleep $RETRY_DELAY
+            fi
+          done
+          
+          if [ "$success" = false ]; then
+            echo "Smoke tests failed after $MAX_RETRIES attempts."
+            exit 1
+          fi
+
+      - name: Send Deploy Success Email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          from: DocBridge DevOps <${{ secrets.SMTP_USERNAME }}>
+          to: ${{ secrets.ALERT_EMAIL }}
+          subject: SUCCESS - DocBridge Deployment to Production
+          body: |
+            The DocBridge deployment has completed successfully and all smoke tests passed.
+
+            Image Tag: ${{ needs.setup.outputs.image_tag }}
+            Gateway IP: http://${{ needs.setup.outputs.agw_ip }}
+            Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Handle Rollback on Failure
+        if: failure()
+        run: |
+          echo "Smoke tests or deployment failed. Rolling back deployment..."
+          helm rollback docbridge --namespace production
+          
+      - name: Send Deploy Failure Email
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          from: DocBridge DevOps <${{ secrets.SMTP_USERNAME }}>
+          to: ${{ secrets.ALERT_EMAIL }}
+          subject: FAILED - DocBridge Deployment to Production
+          body: |
+            The DocBridge deployment has FAILED. A rollback to the previous stable release was executed.
+
+            Image Tag: ${{ needs.setup.outputs.image_tag }}
+            Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

@@ -1,0 +1,87 @@
+name: Template Notify
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        required: true
+        type: string
+      image_tag:
+        required: true
+        type: string
+      status:
+        required: true
+        type: string
+      pipeline_summary:
+        required: false
+        type: string
+    secrets:
+      SMTP_USERNAME:
+        required: false
+      SMTP_PASSWORD:
+        required: false
+      ALERT_EMAIL:
+        required: false
+
+jobs:
+  notify:
+    name: Pipeline Notification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Success Email
+        if: ${{ inputs.status == 'success' }}
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          from: DocBridge DevOps <${{ secrets.SMTP_USERNAME }}>
+          to: ${{ secrets.ALERT_EMAIL }}
+          subject: SUCCESS - ${{ inputs.service_name }} - deploy - DocBridge
+          body: |
+            The pipeline completed successfully for service: ${{ inputs.service_name }}!
+
+            Service: ${{ inputs.service_name }}
+            Image Tag: ${{ inputs.image_tag }}
+            Environment: docbridge namespace on AKS
+            Branch: ${{ github.ref_name }}
+            Triggered by: ${{ github.actor }}
+            Commit: ${{ github.sha }}
+            Application URL: http://57.167.90.5
+
+            Pipeline stages completed:
+              Stage 1: SonarCloud SAST Scan (Passed)
+              Stage 2: Build + Snyk SCA (Passed)
+              Stage 3: Docker Build + Trivy + Push to ACR (Passed)
+              Stage 4: Approval Gate Passed (Approved)
+              Stage 5: Helm Deploy to AKS (Passed)
+              Stage 6: Health Verification Passed (Passed)
+
+            Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Send Failure Email
+        if: ${{ inputs.status != 'success' }}
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          from: DocBridge DevOps <${{ secrets.SMTP_USERNAME }}>
+          to: ${{ secrets.ALERT_EMAIL }}
+          subject: FAILED - ${{ inputs.service_name }} - deploy - DocBridge
+          body: |
+            The pipeline stage failed for service: ${{ inputs.service_name }}.
+
+            Service: ${{ inputs.service_name }}
+            Image Tag: ${{ inputs.image_tag }}
+            Branch: ${{ github.ref_name }}
+            Triggered by: ${{ github.actor }}
+            Commit: ${{ github.sha }}
+            
+            Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            
+            Action Required: Please click the run link above, review the logs for the failing stage, and resolve the issues.

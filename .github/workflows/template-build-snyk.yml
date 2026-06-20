@@ -1,0 +1,102 @@
+name: Template Build & Snyk
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        required: true
+        type: string
+      working_directory:
+        required: false
+        type: string
+        default: '.'
+      node_version:
+        required: false
+        type: string
+        default: '18'
+    secrets:
+      SNYK_TOKEN:
+        required: false
+      SMTP_USERNAME:
+        required: false
+      SMTP_PASSWORD:
+        required: false
+      ALERT_EMAIL:
+        required: false
+
+jobs:
+  build-and-snyk:
+    name: Build + Snyk SCA - ${{ inputs.service_name }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Install Dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Build Application
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          if grep -q '"build":' package.json; then
+            npm run build
+          else
+            echo "No build script defined in package.json, skipping build stage."
+          fi
+
+      - name: Setup Snyk
+        uses: snyk/actions/setup@master
+
+      - name: Run Snyk SCA Scan
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          snyk test --severity-threshold=high --json --json-file-output=snyk-results.json || true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+      - name: Generate Snyk HTML Report
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          npm install -g snyk-to-html
+          snyk-to-html -i snyk-results.json -o snyk-results.html
+
+      - name: Upload Snyk Report Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: snyk-report-${{ inputs.service_name }}-${{ github.run_number }}
+          path: ${{ inputs.working_directory }}/snyk-results.html
+          retention-days: 30
+
+      - name: Send Build Failure Email
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          from: DocBridge DevOps <${{ secrets.SMTP_USERNAME }}>
+          to: ${{ secrets.ALERT_EMAIL }}
+          subject: FAILED - Build Stage - ${{ inputs.service_name }} - DocBridge
+          body: |
+            The compilation/build stage has FAILED for service: ${{ inputs.service_name }}.
+
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            Triggered by: ${{ github.actor }}
+            
+            Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            
+            Action Required: Please review the package compilation errors or install logs in the runner terminal.

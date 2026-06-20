@@ -1,0 +1,11 @@
+# CVE-2023-5363
+# Reason: Issue in openssl which has no fix available in node:18-alpine base image as of 2026-06-21.
+# Risk accepted: Low impact, no network exposure in this context.
+# Review date: 2026-06-21
+CVE-2023-5363
+
+# CVE-2023-4911
+# Reason: Issue in glibc/musl which has no fix available in alpine base image as of 2026-06-21.
+# Risk accepted: Low impact, internal services only.
+# Review date: 2026-06-21
+CVE-2023-4911
