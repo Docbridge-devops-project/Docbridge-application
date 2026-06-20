@@ -14,7 +14,8 @@ async function register(req, res) {
 
 async function login(req, res) {
   try {
-    const { email, password } = req.validatedBody;
+    const body = req.validatedBody;
+    const { email, password } = body;
     const meta = {
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),

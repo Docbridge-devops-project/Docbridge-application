@@ -8,7 +8,7 @@ const env = {
   DB_PORT: parseInt(process.env.DB_PORT, 10) || 5432,
   DB_NAME: process.env.DB_NAME || 'docbridge_db',
   DB_USER: process.env.DB_USER || 'docbridge_user',
-  DB_PASSWORD: process.env.DB_PASSWORD || 'DocBridge@2024Secure',
+  DB_PASSWORD: process.env.DB_PASSWORD || 'docbridge_temp_pass',
   DB_SSL: process.env.DB_SSL === 'true',
   JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET || 'dev_access_secret_replace_in_production',
   LOG_LEVEL: process.env.LOG_LEVEL || 'debug',

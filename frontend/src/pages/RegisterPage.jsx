@@ -22,7 +22,9 @@ export default function RegisterPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    if (form.password !== form.confirmPassword) { setError('Passwords do not match'); return; }
+    const pass = form.password;
+    const confirm = form.confirmPassword;
+    if (pass !== confirm) { setError('Passwords do not match'); return; }
     setLoading(true);
     try {
       await register({ firstName: form.firstName, lastName: form.lastName, email: form.email, password: form.password });
