@@ -49,7 +49,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Detect Changed Paths
         id: detect
@@ -58,6 +58,14 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch origin main --depth=1
             CHANGED=$(git diff --name-only origin/main HEAD)
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            BEFORE="${{ github.event.before }}"
+            if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              CHANGED=$(git show --name-only --format="" HEAD)
+            else
+              git fetch origin "$BEFORE" --depth=1 2>/dev/null || true
+              CHANGED=$(git diff --name-only "$BEFORE" HEAD)
+            fi
           else
             if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
               CHANGED=$(git diff --name-only HEAD~1 HEAD)
