@@ -51,94 +51,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Detect Changed Paths
+      - name: Force Build All Services
         id: detect
         run: |
-          set +e
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch origin main --depth=1
-            CHANGED=$(git diff --name-only origin/main HEAD)
-          elif [ "${{ github.event_name }}" = "push" ]; then
-            BEFORE="${{ github.event.before }}"
-            if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
-              CHANGED=$(git show --name-only --format="" HEAD)
-            else
-              git fetch origin "$BEFORE" --depth=1 2>/dev/null || true
-              CHANGED=$(git diff --name-only "$BEFORE" HEAD)
-            fi
-          else
-            if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
-              CHANGED=$(git diff --name-only HEAD~1 HEAD)
-            else
-              CHANGED=$(git show --name-only --format="" HEAD)
-            fi
-          fi
-          set -e
-          
-          echo "Changed files:"
-          echo "$CHANGED"
-          
-          services=()
-          has_database=false
-          
-          for file in $CHANGED; do
-            if [[ $file =~ ^services/([^/]+)/ ]]; then
-              svc_folder="${BASH_REMATCH[1]}"
-              if [ "$svc_folder" = "consultation-service" ]; then
-                services+=("consultation")
-              elif [ "$svc_folder" = "prescription-service" ]; then
-                services+=("prescription")
-              elif [ "$svc_folder" = "reminder-service" ]; then
-                services+=("reminder")
-              elif [ "$svc_folder" = "labreport-service" ]; then
-                services+=("labreport")
-              elif [ "$svc_folder" = "symptom-service" ]; then
-                services+=("symptom")
-              elif [ "$svc_folder" = "ai-companion-service" ]; then
-                services+=("ai-companion")
-              elif [ "$svc_folder" = "health-summary-service" ]; then
-                services+=("health-summary")
-              elif [ "$svc_folder" = "family-service" ]; then
-                services+=("family")
-              elif [ "$svc_folder" = "auth-service" ]; then
-                services+=("auth-service")
-              fi
-            elif [[ $file =~ ^gateway/ ]]; then
-              services+=("api-gateway")
-            elif [[ $file =~ ^frontend/ ]]; then
-              services+=("frontend")
-            elif [[ $file =~ ^database/ ]]; then
-              has_database=true
-            fi
-          done
-          
-          # Force inputs override logic
-          if [ "${{ github.event.inputs.deploy_all }}" = "true" ]; then
-            services=("frontend" "api-gateway" "auth-service" "consultation" "prescription" "reminder" "labreport" "symptom" "ai-companion" "health-summary" "family")
-            has_database=true
-          elif [ -n "${{ github.event.inputs.service_override }}" ]; then
-            services=("${{ github.event.inputs.service_override }}")
-            if [ "${{ github.event.inputs.service_override }}" = "db-migrations" ]; then
-              has_database=true
-            fi
-          fi
-          
-          # Deduplicate
-          unique_services=($(echo "${services[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
-          
-          # Output JSON array
-          services_json=$(printf '%s\n' "${unique_services[@]}" | jq -R . | jq -s -c .)
+          services_json='["frontend","api-gateway","auth-service","consultation","prescription","reminder","labreport","symptom","ai-companion","health-summary","family"]'
           echo "changed_services=$services_json" >> $GITHUB_OUTPUT
-          echo "has_database=$has_database" >> $GITHUB_OUTPUT
+          echo "has_database=true" >> $GITHUB_OUTPUT
+          echo "any_changed=true" >> $GITHUB_OUTPUT
           
-          if [ ${#unique_services[@]} -gt 0 ] || [ "$has_database" = "true" ]; then
-            echo "any_changed=true" >> $GITHUB_OUTPUT
-          else
-            echo "any_changed=false" >> $GITHUB_OUTPUT
-          fi
-          
-          echo "Detected changed services: $services_json"
-          echo "Has database changes: $has_database"
+          echo "Forced changed services: $services_json"
+          echo "Has database changes: true"
 
   cicd-db-migrations:
     name: "DB Migrations - Docker Build + Push"
