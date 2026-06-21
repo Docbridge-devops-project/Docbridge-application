@@ -1,3 +1,4 @@
+// Trigger build and deploy pipelines after SonarCloud non-blocking fix
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
