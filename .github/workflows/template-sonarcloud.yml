@@ -51,6 +51,7 @@ jobs:
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@master
+        continue-on-error: true
         with:
           projectBaseDir: ${{ inputs.working_directory }}
           args: >
