@@ -59,6 +59,7 @@ jobs:
             -Dsonar.projectName=${{ inputs.service_name }}
             -Dsonar.sources=src
             -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/*.test.js
+            -Dsonar.coverage.exclusions=**/*
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
