@@ -104,9 +104,16 @@ jobs:
             fi
           done
           
-          # Force build all services to populate empty ACR
-          services=("frontend" "api-gateway" "auth-service" "consultation" "prescription" "reminder" "labreport" "symptom" "ai-companion" "health-summary" "family")
-          has_database=true
+          # Force inputs override logic
+          if [ "${{ github.event.inputs.deploy_all }}" = "true" ]; then
+            services=("frontend" "api-gateway" "auth-service" "consultation" "prescription" "reminder" "labreport" "symptom" "ai-companion" "health-summary" "family")
+            has_database=true
+          elif [ -n "${{ github.event.inputs.service_override }}" ]; then
+            services=("${{ github.event.inputs.service_override }}")
+            if [ "${{ github.event.inputs.service_override }}" = "db-migrations" ]; then
+              has_database=true
+            fi
+          fi
           
           # Deduplicate
           unique_services=($(echo "${services[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
