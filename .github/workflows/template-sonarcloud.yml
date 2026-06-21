@@ -51,7 +51,6 @@ jobs:
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@master
-        continue-on-error: true
         with:
           projectBaseDir: ${{ inputs.working_directory }}
           args: >
@@ -67,7 +66,6 @@ jobs:
       - name: SonarCloud Quality Gate
         uses: SonarSource/sonarqube-quality-gate-action@master
         timeout-minutes: 5
-        continue-on-error: true
         with:
           scanMetadataReportFile: ${{ inputs.working_directory }}/.scannerwork/report-task.txt
         env:

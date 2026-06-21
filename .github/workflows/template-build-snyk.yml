@@ -61,7 +61,7 @@ jobs:
       - name: Run Snyk SCA Scan
         working-directory: ${{ inputs.working_directory }}
         run: |
-          snyk test --severity-threshold=high --json --json-file-output=snyk-results.json || true
+          snyk test --severity-threshold=high --json --json-file-output=snyk-results.json
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
