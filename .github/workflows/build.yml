@@ -30,7 +30,7 @@ on:
         description: "Force build all services"
         required: false
         type: boolean
-        default: false
+        default: true
 
 permissions:
   id-token: write
