@@ -92,74 +92,56 @@ jobs:
         run: echo "Deployment approved for production environment."
 
   deploy:
-    name: Helm Deploy to Production
+    name: GitOps Promote to Production
     needs: [setup, approve]
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout DocBridge-kubernetes for Helm chart
+      - name: Checkout DocBridge-kubernetes
         uses: actions/checkout@v4
         with:
           repository: Docbridge-devops-project/DocBridge-kubernetes
           token: ${{ secrets.KUBERNETES_REPO_PAT }}
+          ref: main
           path: docbridge-kubernetes
 
-      - name: Azure Login via OIDC
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Get AKS Credentials
+      - name: Update Argo CD Application Manifest
         run: |
-          az aks get-credentials \
-            --resource-group docbridge-rg \
-            --name docbridge-dev-aks \
-            --overwrite-existing
+          yq -i '
+            (.spec.source.helm.parameters[] | select(.name == "azure.keyVaultName")).value = "${{ needs.setup.outputs.kv_name }}" |
+            (.spec.source.helm.parameters[] | select(.name == "azure.workloadIdentityClientId")).value = "${{ needs.setup.outputs.identity_id }}" |
+            (.spec.source.helm.parameters[] | select(.name == "azure.tenantId")).value = "${{ secrets.AZURE_TENANT_ID }}" |
+            (.spec.source.helm.parameters[] | select(.name == "database.host")).value = "${{ needs.setup.outputs.postgres_fqdn }}" |
+            (.spec.source.helm.parameters[] | select(.name == "gateway.corsOrigin")).value = "http://${{ needs.setup.outputs.agw_ip }}" |
+            (.spec.source.helm.parameters[] | select(.name == "image.tag")).value = "${{ needs.setup.outputs.image_tag }}" |
+            (.spec.source.helm.parameters[] | select(.name == "global.imageTag")).value = "${{ needs.setup.outputs.image_tag }}"
+          ' docbridge-kubernetes/argocd/application.yaml
 
-      - name: Run Helm Upgrade/Install
+      - name: Commit and Push Changes
         run: |
-          helm upgrade --install docbridge ./docbridge-kubernetes/helm/docbridge \
-            --namespace production \
-            --create-namespace \
-            --values ./docbridge-kubernetes/helm/docbridge/values.yaml \
-            --values ./docbridge-kubernetes/helm/docbridge/values.dev.yaml \
-            --set azure.keyVaultName=${{ needs.setup.outputs.kv_name }} \
-            --set azure.workloadIdentityClientId=${{ needs.setup.outputs.identity_id }} \
-            --set azure.tenantId=${{ secrets.AZURE_TENANT_ID }} \
-            --set database.host=${{ needs.setup.outputs.postgres_fqdn }} \
-            --set gateway.corsOrigin=http://${{ needs.setup.outputs.agw_ip }} \
-            --set image.tag=${{ needs.setup.outputs.image_tag }} \
-            --set global.imageTag=${{ needs.setup.outputs.image_tag }} \
-            --wait \
-            --timeout 10m
+          cd docbridge-kubernetes
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add argocd/application.yaml
+          if ! git diff-index --quiet HEAD --; then
+            git commit -m "chore(deploy): promote image to ${{ needs.setup.outputs.image_tag }} [skip ci]"
+            git push origin main
+          else
+            echo "No changes to commit"
+          fi
 
   verify-and-smoke-test:
     name: Verify Rollout and Run Smoke Tests
     needs: [setup, deploy]
     runs-on: ubuntu-latest
     steps:
-      - name: Azure Login via OIDC
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Get AKS Credentials
+      - name: Sleep to Allow Argo CD Sync
         run: |
-          az aks get-credentials \
-            --resource-group docbridge-rg \
-            --name docbridge-dev-aks \
-            --overwrite-existing
-
-      - name: Verify Rollout Status
-        run: |
-          kubectl get pods -n production
+          echo "Sleeping for 90 seconds to allow Argo CD to poll Git and begin synchronization..."
+          sleep 90
 
       - name: Run Smoke Tests against Gateway
         run: |
-          MAX_RETRIES=15
+          MAX_RETRIES=20
           RETRY_DELAY=15
           success=false
           
@@ -206,12 +188,6 @@ jobs:
             Image Tag: ${{ needs.setup.outputs.image_tag }}
             Gateway IP: http://${{ needs.setup.outputs.agw_ip }}
             Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-      - name: Handle Rollback on Failure
-        if: failure()
-        run: |
-          echo "Smoke tests or deployment failed. Rolling back deployment..."
-          helm rollback docbridge --namespace production
           
       - name: Send Deploy Failure Email
         if: failure()
@@ -226,7 +202,7 @@ jobs:
           to: ${{ secrets.ALERT_EMAIL }}
           subject: FAILED - DocBridge Deployment to Production
           body: |
-            The DocBridge deployment has FAILED. A rollback to the previous stable release was executed.
+            The DocBridge deployment has FAILED.
 
             Image Tag: ${{ needs.setup.outputs.image_tag }}
             Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
