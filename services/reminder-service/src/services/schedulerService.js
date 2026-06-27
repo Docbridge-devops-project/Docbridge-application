@@ -9,11 +9,11 @@ function initializeScheduler() {
   cron.schedule('* * * * *', async () => {
     try {
       const now = new Date();
-      const currentTime = now.toTimeString().slice(0, 5); // HH:MM
-      const currentDay = now.getDay() || 7; // 1=Mon, 7=Sun
+      const currentTime = now.toTimeString().slice(0, 5); 
+      const currentDay = now.getDay() || 7; 
       const today = now.toISOString().split('T')[0];
 
-      // Check medicine reminders
+      
       const medicineReminders = await MedicineReminder.findAll({
         where: {
           is_active: true,
@@ -32,7 +32,7 @@ function initializeScheduler() {
         }
       }
 
-      // Check followup reminders due today
+      
       const followupReminders = await FollowupReminder.findAll({
         where: {
           is_active: true,

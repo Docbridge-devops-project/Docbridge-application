@@ -1,5 +1,5 @@
 const NodeCache = require('node-cache');
-// Cache keys for 5 minutes
+
 const idempotencyCache = new NodeCache({ stdTTL: 300 });
 
 function idempotency(req, res, next) {
@@ -9,11 +9,11 @@ function idempotency(req, res, next) {
   
   const idempotencyKey = req.headers['idempotency-key'];
   if (!idempotencyKey) {
-    // If no key is provided, we just let it through (or we could enforce it)
+    
     return next();
   }
 
-  // Combine user ID and key to ensure uniqueness per user
+  
   const userId = req.headers['x-user-id'] || req.user?.userId || 'anonymous';
   const cacheKey = `${userId}:${idempotencyKey}`;
 
@@ -26,7 +26,7 @@ function idempotency(req, res, next) {
     });
   }
 
-  // Mark as processing
+  
   idempotencyCache.set(cacheKey, 'processing');
   
   next();

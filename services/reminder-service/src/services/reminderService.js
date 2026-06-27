@@ -3,7 +3,7 @@ const { Op } = require('sequelize');
 const logger = require('../config/logger');
 
 class ReminderService {
-  // Medicine Reminders
+  
   async listMedicineReminders(userId, query = {}) {
     const { page = 1, limit = 10, isActive } = query;
     const where = { user_id: userId };
@@ -55,7 +55,7 @@ class ReminderService {
     return { message: 'Medicine reminder deleted.' };
   }
 
-  // Followup Reminders
+  
   async listFollowupReminders(userId, query = {}) {
     const { page = 1, limit = 10, isCompleted } = query;
     const where = { user_id: userId, is_active: true };

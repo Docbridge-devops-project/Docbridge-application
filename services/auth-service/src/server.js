@@ -6,7 +6,7 @@ async function startServer() {
   try {
     await connectWithRetry();
 
-    // Load models to register associations
+    
     require('./models');
 
     const app = require('./app');

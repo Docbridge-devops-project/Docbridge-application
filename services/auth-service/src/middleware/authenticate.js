@@ -4,7 +4,7 @@ const env = require('../config/environment');
 function authenticate(req, res, next) {
   const authHeader = req.headers.authorization;
 
-  // Check for x-user-id header from gateway (already authenticated)
+  
   if (req.headers['x-user-id']) {
     req.user = {
       userId: req.headers['x-user-id'],

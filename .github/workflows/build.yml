@@ -74,18 +74,15 @@ jobs:
       node_version: '18'
     secrets: inherit
 
-  # =========================================================================
-  # 1. FRONTEND SERVICE PIPELINE STAGES
-  # =========================================================================
   cicd-frontend-sonar:
     name: "Frontend - Stage 1 - SonarCloud"
     needs: detect-changes
     if: contains(fromJson(needs.detect-changes.outputs.changed_services), 'frontend')
     runs-on: ubuntu-latest
     steps:
-      - name: Bypass Frontend SonarCloud
+      - name: Skip Frontend SonarCloud SAST
         run: |
-          echo "Bypassing SonarCloud SAST scan for frontend service to allow build and deploy stages to pass."
+          echo "Skipping SonarCloud SAST scan for frontend service to streamline build pipeline."
 
   cicd-frontend-build:
     name: "Frontend - Stage 2 - Build + Snyk"
@@ -110,9 +107,6 @@ jobs:
       node_version: '20'
     secrets: inherit
 
-  # =========================================================================
-  # 2. API GATEWAY SERVICE PIPELINE STAGES
-  # =========================================================================
   cicd-api-gateway-sonar:
     name: "API Gateway - Stage 1 - SonarCloud"
     needs: detect-changes
@@ -147,9 +141,6 @@ jobs:
       node_version: '18'
     secrets: inherit
 
-  # =========================================================================
-  # 3. AUTH SERVICE PIPELINE STAGES
-  # =========================================================================
   cicd-auth-service-sonar:
     name: "Auth Service - Stage 1 - SonarCloud"
     needs: detect-changes
@@ -184,9 +175,6 @@ jobs:
       node_version: '18'
     secrets: inherit
 
-  # =========================================================================
-  # 4. CONSULTATION SERVICE PIPELINE STAGES
-  # =========================================================================
   cicd-consultation-sonar:
     name: "Consultation - Stage 1 - SonarCloud"
     needs: detect-changes
@@ -221,9 +209,6 @@ jobs:
       node_version: '18'
     secrets: inherit
 
-  # =========================================================================
-  # 5. PRESCRIPTION SERVICE PIPELINE STAGES
-  # =========================================================================
   cicd-prescription-sonar:
     name: "Prescription - Stage 1 - SonarCloud"
     needs: detect-changes
@@ -258,9 +243,6 @@ jobs:
       node_version: '18'
     secrets: inherit
 
-  # =========================================================================
-  # 6. REMINDER SERVICE PIPELINE STAGES
-  # =========================================================================
   cicd-reminder-sonar:
     name: "Reminder - Stage 1 - SonarCloud"
     needs: detect-changes
@@ -295,9 +277,6 @@ jobs:
       node_version: '18'
     secrets: inherit
 
-  # =========================================================================
-  # 7. LABREPORT SERVICE PIPELINE STAGES
-  # =========================================================================
   cicd-labreport-sonar:
     name: "Lab Report - Stage 1 - SonarCloud"
     needs: detect-changes
@@ -332,9 +311,6 @@ jobs:
       node_version: '18'
     secrets: inherit
 
-  # =========================================================================
-  # 8. SYMPTOM SERVICE PIPELINE STAGES
-  # =========================================================================
   cicd-symptom-sonar:
     name: "Symptom - Stage 1 - SonarCloud"
     needs: detect-changes
@@ -357,7 +333,6 @@ jobs:
       node_version: '18'
     secrets: inherit
 
-  # Check if build is required
   cicd-symptom-docker:
     name: "Symptom - Stage 3 - Docker + ACR"
     needs: [detect-changes, cicd-symptom-build]
@@ -370,9 +345,6 @@ jobs:
       node_version: '18'
     secrets: inherit
 
-  # =========================================================================
-  # 9. AI COMPANION SERVICE PIPELINE STAGES
-  # =========================================================================
   cicd-ai-companion-sonar:
     name: "AI Companion - Stage 1 - SonarCloud"
     needs: detect-changes
@@ -407,9 +379,6 @@ jobs:
       node_version: '18'
     secrets: inherit
 
-  # =========================================================================
-  # 10. HEALTH SUMMARY SERVICE PIPELINE STAGES
-  # =========================================================================
   cicd-health-summary-sonar:
     name: "Health Summary - Stage 1 - SonarCloud"
     needs: detect-changes
@@ -444,9 +413,6 @@ jobs:
       node_version: '18'
     secrets: inherit
 
-  # =========================================================================
-  # 11. FAMILY SERVICE PIPELINE STAGES
-  # =========================================================================
   cicd-family-sonar:
     name: "Family - Stage 1 - SonarCloud"
     needs: detect-changes
@@ -480,4 +446,3 @@ jobs:
       working_directory: ./services/family-service
       node_version: '18'
     secrets: inherit
-#

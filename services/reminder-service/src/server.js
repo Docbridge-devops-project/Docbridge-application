@@ -7,7 +7,7 @@ async function startServer() {
     await connectWithRetry();
     require('./models');
 
-    // Initialize reminder scheduler
+    
     const { initializeScheduler } = require('./services/schedulerService');
     initializeScheduler();
 
@@ -27,7 +27,7 @@ async function startServer() {
         try {
           const { sequelize } = require('./config/database');
           await sequelize.close();
-        } catch (e) { /* ignore */ }
+        } catch (e) {  }
         process.exit(0);
       });
       setTimeout(() => process.exit(1), 10000);

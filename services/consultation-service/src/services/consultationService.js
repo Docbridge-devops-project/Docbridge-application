@@ -95,7 +95,7 @@ class ConsultationService {
 
   async aiExplain(userId, id) {
     const consultation = await this.getById(userId, id);
-    // Placeholder for AI integration — will be called via AI companion service
+    
     const explanation = consultation.ai_explanation || 'AI explanation will be generated when the AI Companion service is configured with Azure OpenAI credentials.';
     if (!consultation.ai_explanation) {
       await consultation.update({ ai_explanation: explanation });

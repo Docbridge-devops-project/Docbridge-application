@@ -61,7 +61,7 @@ module.exports = {
     await queryInterface.addIndex('chat_history', ['session_id'], { name: 'idx_chat_history_session_id' });
     await queryInterface.addIndex('chat_history', ['created_at'], { name: 'idx_chat_history_created_at' });
 
-    // Create the updated_at trigger function and apply to all tables
+    
     await queryInterface.sequelize.query(`
       CREATE OR REPLACE FUNCTION update_updated_at_column()
       RETURNS TRIGGER AS $$

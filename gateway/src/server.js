@@ -33,5 +33,5 @@ process.on('uncaughtException', (error) => {
   process.exit(1);
 });
 
-// Triggering build pipeline for new container registry
+
 

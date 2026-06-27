@@ -11,21 +11,21 @@ class HealthSummaryService {
         { replacements: { userId } }
       );
 
-      // const [[consultationStats]] = await sequelize.query(
-      //   `SELECT COUNT(*) as total,
-      //           COUNT(*) FILTER (WHERE status = 'completed') as completed,
-      //           COUNT(*) FILTER (WHERE status = 'scheduled') as scheduled
-      //    FROM consultations WHERE user_id = :userId`,
-      //   { replacements: { userId } }
-      // );
+      
+      
+      
+      
+      
+      
+      
       const consultationRes = await InternalApi.get('/consultations/stats/summary', token);
       let consultationStats = consultationRes?.data || null;
 
-      // const [activeMeds] = await sequelize.query(
-      //   `SELECT id, medicine_name, dosage, frequency, start_date, end_date, prescribing_doctor
-      //    FROM prescriptions WHERE user_id = :userId AND is_active = true ORDER BY start_date DESC`,
-      //   { replacements: { userId } }
-      // );
+      
+      
+      
+      
+      
       const prescriptionRes = await InternalApi.get('/prescriptions/active', token);
       let activeMeds = prescriptionRes?.data || null;
       if (activeMeds) {
@@ -34,11 +34,11 @@ class HealthSummaryService {
         }));
       }
 
-      // const [ongoingSymptoms] = await sequelize.query(
-      //   `SELECT id, symptom_name, severity, onset_date, body_location
-      //    FROM symptoms WHERE user_id = :userId AND is_ongoing = true ORDER BY severity DESC`,
-      //   { replacements: { userId } }
-      // );
+      
+      
+      
+      
+      
       const symptomRes = await InternalApi.get('/symptoms/ongoing', token);
       let ongoingSymptoms = symptomRes?.data || null;
       if (ongoingSymptoms) {
@@ -47,12 +47,12 @@ class HealthSummaryService {
         }));
       }
 
-      // const [upcomingFollowups] = await sequelize.query(
-      //   `SELECT id, title, reminder_date, reminder_type
-      //    FROM followup_reminders WHERE user_id = :userId AND is_active = true AND is_completed = false AND reminder_date >= CURRENT_DATE
-      //    ORDER BY reminder_date ASC LIMIT 5`,
-      //   { replacements: { userId } }
-      // );
+      
+      
+      
+      
+      
+      
       const reminderRes = await InternalApi.get('/reminders/upcoming', token);
       let upcomingFollowups = reminderRes?.data?.followupReminders || reminderRes?.data || [];
       if (upcomingFollowups && Array.isArray(upcomingFollowups)) {
@@ -61,11 +61,11 @@ class HealthSummaryService {
         })).slice(0, 5);
       }
 
-      // const [recentLabReports] = await sequelize.query(
-      //   `SELECT id, report_name, report_type, report_date, status, flagged_values
-      //    FROM lab_reports WHERE user_id = :userId ORDER BY report_date DESC LIMIT 3`,
-      //   { replacements: { userId } }
-      // );
+      
+      
+      
+      
+      
       const labReportRes = await InternalApi.get('/lab-reports?limit=3', token);
       let recentLabReports = labReportRes?.data?.data || labReportRes?.data || null;
       if (recentLabReports && Array.isArray(recentLabReports)) {
@@ -76,14 +76,14 @@ class HealthSummaryService {
         recentLabReports = null;
       }
 
-      // const [[medReminderCount]] = await sequelize.query(
-      //   `SELECT COUNT(*) as active_reminders FROM medicine_reminders WHERE user_id = :userId AND is_active = true`,
-      //   { replacements: { userId } }
-      // );
+      
+      
+      
+      
       const medReminderRes = await InternalApi.get('/reminders/medicine?is_active=true&limit=1', token);
       let medReminderCount = { active_reminders: medReminderRes?.pagination?.total || 0 };
 
-      // Health score calculation (simple heuristic)
+      
       let healthScore = 80;
       if (ongoingSymptoms) {
         if (ongoingSymptoms.length > 3) healthScore -= 10;
@@ -101,7 +101,7 @@ class HealthSummaryService {
       }
       healthScore = Math.max(healthScore, 20);
 
-      // Compact arrays to return only small requested fields (name/dosage/date/title only)
+      
       const activeMedicationsCompact = (activeMeds || []).map(p => ({
         id: p.id,
         medicine_name: p.medicine_name,

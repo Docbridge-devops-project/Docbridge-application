@@ -1,4 +1,4 @@
-// Trigger build and deploy pipelines after SonarCloud non-blocking and Trivy exit-code update
+
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');

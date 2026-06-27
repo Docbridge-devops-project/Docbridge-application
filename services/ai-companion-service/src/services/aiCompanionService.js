@@ -9,7 +9,7 @@ class AICompanionService {
   async chat(userId, message, sessionId = null) {
     const activeSessionId = sessionId || uuidv4();
 
-    // Build context
+    
     const healthContext = await buildUserContext(userId);
     const chatHistory = await ChatHistory.findAll({
       where: { user_id: userId, session_id: activeSessionId },
@@ -17,7 +17,7 @@ class AICompanionService {
       attributes: ['role', 'content'],
     });
 
-    // Save user message
+    
     await ChatHistory.create({
       user_id: userId, session_id: activeSessionId,
       role: 'user', content: message,
@@ -30,11 +30,11 @@ class AICompanionService {
 
     const aiResponse = await callAzureOpenAI(messages);
 
-    // Add medical disclaimer
+    
     const disclaimer = '\n\n---\n⚕️ *This is general health information, not medical advice. Always consult your doctor before making any health decisions.*';
     const fullResponse = aiResponse.content + disclaimer;
 
-    // Save assistant response
+    
     const savedMessage = await ChatHistory.create({
       user_id: userId, session_id: activeSessionId,
       role: 'assistant', content: fullResponse,

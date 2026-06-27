@@ -5,10 +5,10 @@ const GATEWAY_URL = process.env.API_GATEWAY_URL || 'http://127.0.0.1:3000/api/v1
 
 const internalApiClient = axios.create({
   baseURL: GATEWAY_URL,
-  timeout: 3000, // 3000ms strict timeout
+  timeout: 3000, 
 });
 
-// Interceptor to log internal requests
+
 internalApiClient.interceptors.request.use(config => {
   logger.debug(`Internal call: ${config.method.toUpperCase()} ${config.url}`);
   return config;
@@ -25,7 +25,7 @@ class InternalApi {
       return response.data;
     } catch (error) {
       logger.error(`Internal API Error [${path}]: ${error.message}`);
-      return null; // Return null on failure or timeout
+      return null; 
     }
   }
 }

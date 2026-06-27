@@ -119,10 +119,10 @@ class AuthService {
       throw error;
     }
 
-    // Revoke old refresh token
+    
     await storedToken.update({ is_revoked: true });
 
-    // Generate new tokens
+    
     const tokenPayload = { userId: user.id, email: user.email, role: user.role };
     const newAccessToken = generateAccessToken(tokenPayload);
     const newRefreshToken = generateRefreshToken(tokenPayload);
@@ -194,7 +194,7 @@ class AuthService {
 
     await user.update({ password_hash: newPassword });
 
-    // Revoke all existing refresh tokens for security
+    
     await RefreshToken.update(
       { is_revoked: true },
       { where: { user_id: userId, is_revoked: false } }

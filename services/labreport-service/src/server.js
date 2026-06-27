@@ -23,7 +23,7 @@ async function startServer() {
         try {
           const { sequelize } = require('./config/database');
           await sequelize.close();
-        } catch (e) { /* ignore */ }
+        } catch (e) {  }
         process.exit(0);
       });
       setTimeout(() => process.exit(1), 10000);

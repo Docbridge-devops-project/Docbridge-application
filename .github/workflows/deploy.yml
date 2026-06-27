@@ -130,7 +130,7 @@ jobs:
           fi
 
   verify-and-smoke-test:
-    name: Verify Rollout and Run Smoke Tests
+    name: Verify Smoke Tests
     needs: [setup, deploy]
     runs-on: ubuntu-latest
     steps:
@@ -155,7 +155,6 @@ jobs:
             
             echo "HTTP Responses - /api/v1/health: $STATUS_HEALTH, /healthz: $STATUS_HEALTHZ, /ready: $STATUS_READY, /api/v1/auth/health: $STATUS_AUTH_HEALTH"
             
-            # Check if all return 200 OK
             if [ "$STATUS_HEALTH" = "200" ] && [ "$STATUS_HEALTHZ" = "200" ] && [ "$STATUS_READY" = "200" ]; then
               success=true
               echo "Smoke tests passed!"
