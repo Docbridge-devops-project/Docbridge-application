@@ -1,5 +1,5 @@
 const { ChatHistory } = require('../models');
-const { callAzureOpenAI } = require('../config/azureOpenai');
+const { callOpenRouter } = require('../config/openRouter');
 const { buildUserContext } = require('./contextBuilderService');
 const promptEngine = require('./promptEngineService');
 const { v4: uuidv4 } = require('uuid');
@@ -28,7 +28,7 @@ class AICompanionService {
       chatHistory: chatHistory.map(m => ({ role: m.role, content: m.content })),
     });
 
-    const aiResponse = await callAzureOpenAI(messages);
+    const aiResponse = await callOpenRouter(messages);
 
     
     const disclaimer = '\n\n---\n⚕️ *This is general health information, not medical advice. Always consult your doctor before making any health decisions.*';
@@ -78,13 +78,13 @@ class AICompanionService {
 
   async explainMedicine(userId, medicineData) {
     const messages = promptEngine.buildMedicineExplainPrompt(medicineData);
-    const response = await callAzureOpenAI(messages, { maxTokens: 1500 });
+    const response = await callOpenRouter(messages, { maxTokens: 1500 });
     return { explanation: response.content, tokensUsed: response.tokensUsed };
   }
 
   async explainLabReport(userId, reportData) {
     const messages = promptEngine.buildLabReportExplainPrompt(reportData);
-    const response = await callAzureOpenAI(messages, { maxTokens: 1500 });
+    const response = await callOpenRouter(messages, { maxTokens: 1500 });
     return { explanation: response.content, tokensUsed: response.tokensUsed };
   }
 
@@ -93,7 +93,7 @@ class AICompanionService {
     const messages = promptEngine.buildSymptomInsightPrompt(symptomData, {
       medications: context.activeMedications,
     });
-    const response = await callAzureOpenAI(messages, { maxTokens: 1200 });
+    const response = await callOpenRouter(messages, { maxTokens: 1200 });
     return { insight: response.content, tokensUsed: response.tokensUsed };
   }
 
@@ -105,7 +105,7 @@ class AICompanionService {
       symptoms: context.ongoingSymptoms,
       labHighlights: context.recentLabReports.map(r => r.report_name).join(', '),
     });
-    const response = await callAzureOpenAI(messages, { maxTokens: 1000 });
+    const response = await callOpenRouter(messages, { maxTokens: 1000 });
     return { questions: response.content, tokensUsed: response.tokensUsed };
   }
 
