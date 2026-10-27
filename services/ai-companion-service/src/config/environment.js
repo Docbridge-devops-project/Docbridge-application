@@ -12,10 +12,12 @@ const env = {
   DB_SSL: process.env.DB_SSL === 'true',
   JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET || 'dev_access_secret_replace_in_production',
   LOG_LEVEL: process.env.LOG_LEVEL || 'debug',
-  AZURE_OPENAI_ENDPOINT: process.env.AZURE_OPENAI_ENDPOINT || '',
-  AZURE_OPENAI_KEY: process.env.AZURE_OPENAI_KEY || '',
-  AZURE_OPENAI_DEPLOYMENT_NAME: process.env.AZURE_OPENAI_DEPLOYMENT_NAME || 'gpt-4',
-  AZURE_OPENAI_API_VERSION: process.env.AZURE_OPENAI_API_VERSION || '2024-02-15-preview',
+  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY || '',
+  OPENROUTER_MODEL: process.env.OPENROUTER_MODEL || '',
+  OPENROUTER_BASE_URL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
+  OPENROUTER_SITE_URL: process.env.OPENROUTER_SITE_URL || '',
+  OPENROUTER_APP_NAME: process.env.OPENROUTER_APP_NAME || 'DocBridge AI Companion',
+  OPENROUTER_TIMEOUT_MS: parseInt(process.env.OPENROUTER_TIMEOUT_MS, 10) || 30000,
 };
 
 module.exports = env;
