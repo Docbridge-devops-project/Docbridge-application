@@ -3,7 +3,7 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env'
 module.exports = {
   development: {
     username: process.env.DB_USER || 'docbridge_user',
-    password: process.env.DB_PASSWORD || 'DocBridge@2024Secure',
+    password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME || 'docbridge_db',
     host: process.env.DB_HOST || 'localhost',
     port: parseInt(process.env.DB_PORT, 10) || 5432,
@@ -16,7 +16,7 @@ module.exports = {
   },
   test: {
     username: process.env.DB_USER || 'docbridge_user',
-    password: process.env.DB_PASSWORD || 'DocBridge@2024Secure',
+    password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME || 'docbridge_test_db',
     host: process.env.DB_HOST || 'localhost',
     port: parseInt(process.env.DB_PORT, 10) || 5432,
